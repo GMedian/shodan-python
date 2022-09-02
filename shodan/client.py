@@ -369,6 +369,39 @@ class Shodan:
             query_args['facets'] = create_facet_string(facets)
         return self._request('/shodan/host/count', query_args)
 
+    def vulners_host(self, ips, history=False, minify=False):
+        result = self.host(ips, history, minify)
+
+        v_url = "https://vulners.com/api/v3/burp/software/"
+        payload = {"software": "", "version": "", "type": "cpe"}
+
+        for item in result.get('data', {}):
+            vers, cpe = item.get('version'), item.get('cpe') or item.get('cpe23')
+            if not cpe:
+                continue
+            if not vers:
+                if not cpe:
+                    continue
+                if isinstance(cpe, (list, tuple)):
+                    cpe = cpe[0]
+                vers = cpe.split(':')[-1]
+
+            v_res = requests.get(v_url, params={"software": cpe, "version": vers, "type": "cpe"})
+            if v_res.status_code != 200:
+                continue
+            v_res = v_res.json()
+            if v_res['result'] != "OK":
+                continue
+
+            item['vulners_result'] = {
+                item['id']: {'cvss': item.get('_source', {}).get('cvss', {}).get('score', 0.0),
+                              'url': "https://vulners.com/" + item.get('_source', {}).get('type', '') + \
+                                     '/' + item.get('_source', {}).get('id', '')}
+                for item in v_res['data']['search']
+            }
+        return result
+
+
     def host(self, ips, history=False, minify=False):
         """Get all available information on an IP.
 
